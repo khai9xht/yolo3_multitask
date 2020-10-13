@@ -40,23 +40,14 @@ class YOLO(object):
     #---------------------------------------------------#
     def __init__(self, **kwargs):
         self.__dict__.update(self._defaults)
-        self.class_names = self._get_class()
+        self.num_classes = 3
         self.config = Config
         self.generate()
     #---------------------------------------------------#
     #   获得所有的分类
     #---------------------------------------------------#
-    def _get_class(self):
-        classes_path = os.path.expanduser(self.classes_path)
-        with open(classes_path) as f:
-            class_names = f.readlines()
-        class_names = [c.strip() for c in class_names]
-        return class_names
-    #---------------------------------------------------#
-    #   获得所有的分类
-    #---------------------------------------------------#
     def generate(self):
-        self.config["yolo"]["classes"] = len(self.class_names)
+        self.config["yolo"]["classes"] = self.num_classes
         self.net = YoloBody(self.config)
 
         # 加快模型训练的效率
@@ -78,8 +69,8 @@ class YOLO(object):
 
         print('{} model, anchors, and classes loaded.'.format(self.model_path))
         # 画框设置不同的颜色
-        hsv_tuples = [(x / len(self.class_names), 1., 1.)
-                      for x in range(len(self.class_names))]
+        hsv_tuples = [(x / self.num_classes, 1., 1.)
+                      for x in range(self.num_classes]
         self.colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
         self.colors = list(
             map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)),
@@ -131,7 +122,6 @@ class YOLO(object):
         thickness = (np.shape(image)[0] + np.shape(image)[1]) // self.model_image_size[0]
 
         for i, c in enumerate(top_label):
-            predicted_class = self.class_names[c]
             score = top_conf[i]
 
             top, left, bottom, right = boxes[i]
@@ -145,17 +135,17 @@ class YOLO(object):
             bottom = min(np.shape(image)[0], np.floor(bottom + 0.5).astype('int32'))
             right = min(np.shape(image)[1], np.floor(right + 0.5).astype('int32'))
 
-            # 画框框
-            label = '{} {:.2f}'.format(predicted_class, score)
+            # # 画框框
+            # label = '{} {:.2f}'.format(predicted_class, score)
             draw = ImageDraw.Draw(image)
-            label_size = draw.textsize(label, font)
-            label = label.encode('utf-8')
-            print(label)
+            # label_size = draw.textsize(label, font)
+            # label = label.encode('utf-8')
+            # print(label)
             
-            if top - label_size[1] >= 0:
-                text_origin = np.array([left, top - label_size[1]])
-            else:
-                text_origin = np.array([left, top + 1])
+            # if top - label_size[1] >= 0:
+            #     text_origin = np.array([left, top - label_size[1]])
+            # else:
+            #     text_origin = np.array([left, top + 1])
 
             for i in range(thickness):
                 draw.rectangle(
