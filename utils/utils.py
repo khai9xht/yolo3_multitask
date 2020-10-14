@@ -161,48 +161,34 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
         # 获得种类及其置信度
-        class_conf, class_pred = torch.max(
-            image_pred[:, 5:5 + num_classes], 1, keepdim=True)
-        print(f"[INFO] class_conf: {class_conf.size}")
-        print(f"[INFO] class_pred: {class_pred}.size")
-        print(
-            f"[INFO] max of prediction: {torch.max(image_pred[:, 5:5 + num_classes], 1, keepdim=True).size}")
+        print(f'[INFO] prediction: {prediction.shape}')
+        class_conf = torch.mean(image_pred[:, 5:5 + num_classes], 1, keepdim=True)
+        print(f'[INFO] image_pred[:, 5:5 + num_classes]: {image_pred[:, 5:5 + num_classes].shape}')
+        print(f"[INFO] class_conf: {class_conf.shape}")
         # 利用置信度进行第一轮筛选
-        conf_mask = (image_pred[:, 4]*class_conf[:, 0] >= conf_thres).squeeze()
-
+        conf_mask = (image_pred[:, 4] >= conf_thres).squeeze()
+        print(f"[INFO] conf_mask: {conf_mask.shape}")
         image_pred = image_pred[conf_mask]
         class_conf = class_conf[conf_mask]
-        class_pred = class_pred[conf_mask]
         if not image_pred.size(0):
             continue
-        # 获得的内容为(x1, y1, x2, y2, obj_conf, class_conf, class_pred)
+        # 获得的内容为(x1, y1, x2, y2, obj_conf, class_conf)
         detections = torch.cat(
-            (image_pred[:, :5], class_conf.float(), class_pred.float()), 1)
-
-        # 获得种类
-        unique_labels = detections[:, -1].cpu().unique()
+            (image_pred[:, :5], class_conf.float(), 1))
 
         if prediction.is_cuda:
-            unique_labels = unique_labels.cuda()
             detections = detections.cuda()
 
-        for c in unique_labels:
-            # 获得某一类初步筛选后全部的预测结果
-            detections_class = detections[detections[:, -1] == c]
+        keep = nms(
+            detections[:, :4],
+            detections[:, 4],
+            nms_thres
+        )
+        max_detections = detections[keep]
 
-            #------------------------------------------#
-            #   使用官方自带的非极大抑制会速度更快一些！
-            #------------------------------------------#
-            keep = nms(
-                detections_class[:, :4],
-                detections_class[:, 4]*detections_class[:, 5],
-                nms_thres
-            )
-            max_detections = detections_class[keep]
-
-            # Add max detections to outputs
-            output[image_i] = max_detections if output[image_i] is None else torch.cat(
-                (output[image_i], max_detections))
+        # Add max detections to outputs
+        output[image_i] = max_detections if output[image_i] is None else torch.cat(
+            (output[image_i], max_detections))
 
     return output
 

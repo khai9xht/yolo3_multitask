@@ -22,7 +22,7 @@ from utils.utils import non_max_suppression, bbox_iou, DecodeBox, letterbox_imag
 
 class YOLO(object):
     _defaults = {
-        "model_path": 'model_data/yolo_weights.pth',
+        "model_path": 'logs/Epoch96-Total_Loss0.0266-Val_Loss0.0441.pth',
         "classes_path": 'model_data/coco_classes.txt',
         "model_image_size": (416, 416, 3),
         "confidence": 0.5,
@@ -112,10 +112,8 @@ class YOLO(object):
             batch_detections = batch_detections[0].cpu().numpy()
         except:
             return image
-        top_index = batch_detections[:, 4] * \
-            batch_detections[:, 5] > self.confidence
-        top_conf = batch_detections[top_index, 4] * \
-            batch_detections[top_index, 5]
+        top_index = batch_detections[:, 4] > self.confidence
+        top_conf = batch_detections[top_index, 4]
         top_label = np.array(batch_detections[top_index, -1], np.int32)
         top_bboxes = np.array(batch_detections[top_index, :4])
         top_xmin, top_ymin, top_xmax, top_ymax = np.expand_dims(top_bboxes[:, 0], -1), np.expand_dims(
@@ -131,8 +129,7 @@ class YOLO(object):
         thickness = (np.shape(image)[0] + np.shape(image)
                      [1]) // self.model_image_size[0]
 
-        for i, c in enumerate(top_label):
-            score = top_conf[i]
+        for i, score in enumerate(top_conf):
 
             top, left, bottom, right = boxes[i]
             top = top - 5
