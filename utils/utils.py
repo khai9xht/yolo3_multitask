@@ -151,6 +151,10 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     for image_i, image_pred in enumerate(prediction):
         # 获得种类及其置信度
         class_conf, class_pred = torch.max(image_pred[:, 5:5 + num_classes], 1, keepdim=True)
+        print(f'[INFO] max results: {torch.max(image_pred[:, 5:5 + num_classes], 1, keepdim=True)}')
+        print(f'[INFO] class_conf : {class_conf.size}')
+        print(f'[INFO] class_pred: {class_pred.size}')
+
 
         # 利用置信度进行第一轮筛选
         conf_mask = (image_pred[:, 4]*class_conf[:, 0] >= conf_thres).squeeze()
