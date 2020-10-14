@@ -1,3 +1,4 @@
 {
-    "git.ignoreLimitWarning": true
+    "git.ignoreLimitWarning": true,
+    "python.pythonPath": "/home/khai9xht/anaconda3/envs/yolo/bin/python"
 }
