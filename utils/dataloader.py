@@ -40,7 +40,7 @@ class YoloDataset(Dataset):
         # print(f'[INFO] line1: [{line1}]')
         box = np.array([np.array(list(map(float, box.split(' ')))) for box in [line1]])
 
-        # 调整图片大小
+        # resize image larger than input shape
         new_ar = w / h * self.rand(1 - jitter, 1 + jitter) / self.rand(1 - jitter, 1 + jitter)
         scale = self.rand(.5, 1.5)
         if new_ar < 1:
@@ -51,7 +51,7 @@ class YoloDataset(Dataset):
             nh = int(nw / new_ar)
         image = image.resize((nw, nh), Image.BICUBIC)
 
-        # 放置图片
+        # resize with image smaller than input shape
         dx = int(self.rand(0, w - nw))
         dy = int(self.rand(0, h - nh))
         new_image = Image.new('RGB', (w, h),
@@ -59,12 +59,12 @@ class YoloDataset(Dataset):
         new_image.paste(image, (dx, dy))
         image = new_image
 
-        # 是否翻转图片
+        # flip transforms
         flip = self.rand() < .5
         if flip:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
 
-        # 色域变换
+        # color transforms
         hue = self.rand(-hue, hue)
         sat = self.rand(1, sat) if self.rand() < .5 else 1 / self.rand(1, sat)
         val = self.rand(1, val) if self.rand() < .5 else 1 / self.rand(1, val)
@@ -79,7 +79,7 @@ class YoloDataset(Dataset):
         x[x < 0] = 0
         image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB)*255
 
-        # 调整目标框坐标
+        # preprocess coordination target
         box_data = np.zeros((len(box), 7))
         if len(box) > 0:
             np.random.shuffle(box)
@@ -114,7 +114,7 @@ class YoloDataset(Dataset):
         index = index % n
         img, y = self.get_random_data(lines[index], self.image_size[0:2])
         if len(y) != 0:
-            # 从坐标转换成0~1的百分比
+            # normalize coordinate to [0, 1]
             boxes = np.array(y[:, :4], dtype=np.float32)
             boxes[:, 0] = boxes[:, 0] / self.image_size[1]
             boxes[:, 1] = boxes[:, 1] / self.image_size[0]
@@ -129,9 +129,9 @@ class YoloDataset(Dataset):
             boxes[:, 0] = boxes[:, 0] + boxes[:, 2] / 2
             boxes[:, 1] = boxes[:, 1] + boxes[:, 3] / 2
 
-            #convert 'C to radian
-            y[:, 4:] = y[:, 4:] / 180
-
+            #convert 'C to [-1 , 1]
+            y[:, 4:] = y[:, 4:] / 90
+            # print(f'[INFO] y[:, 4:] : {y[:, 4:]}')
             y = np.concatenate([boxes, y[:, 4:]], axis=-1)
             # print(f'[INFO] y: {y.shape}')
 
@@ -144,7 +144,7 @@ class YoloDataset(Dataset):
         return tmp_inp, tmp_targets
 
 
-# DataLoader中collate_fn使用
+# DataLoader
 def yolo_dataset_collate(batch):
     images = []
     bboxes = []

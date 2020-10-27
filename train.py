@@ -4,6 +4,7 @@
 import os
 import numpy as np
 import time
+import math
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
@@ -23,7 +24,7 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epoch,cuda,writer):
+def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epoch,cuda,writer, min_val_loss):
     total_loss = 0
     val_loss = 0
     start_time = time.time()
@@ -53,7 +54,7 @@ def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epo
                 writer.add_scalar("Loss_conf", loss_item[5], idx)
                 writer.add_scalar("Loss_yaw", loss_item[6], idx)
                 writer.add_scalar("Loss_pitch", loss_item[7], idx)
-                writer.add_scalar("Loss_roll", loss_item[8], idx)   
+                writer.add_scalar("Loss_roll", loss_item[8], idx)
 
             loss = sum(losses)
             loss.backward()
@@ -98,8 +99,11 @@ def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epo
     print('Epoch:'+ str(epoch+1) + '/' + str(Epoch))
     print('Total Loss: %.4f || Val Loss: %.4f ' % (total_loss/(epoch_size+1),val_loss/(epoch_size_val+1)))
 
-    print('Saving state, iter:', str(epoch+1))
-    torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f-Val_Loss%.4f.pth'%((epoch+1),total_loss/(epoch_size+1),val_loss/(epoch_size_val+1)))
+
+    if min_val_loss > val_loss/(epoch_size_val+1):
+        min_val_loss = val_loss/(epoch_size_val+1)
+        print('Saving state, iter:', str(epoch+1))
+        torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f-Val_Loss%.4f.pth'%((epoch+1),total_loss/(epoch_size+1),val_loss/(epoch_size_val+1)))
 
 #----------------------------------------------------#
 #   检测精度mAP和pr曲线计算参考视频
@@ -145,7 +149,7 @@ if __name__ == "__main__":
     val_split = 0.1
     with open(annotation_path) as f:
         lines = f.readlines()
-        print(lines[:10])
+        # print(lines[:10])
     np.random.seed(10101)
     np.random.shuffle(lines)
     np.random.seed(None)
@@ -192,8 +196,9 @@ if __name__ == "__main__":
         for param in model.backbone.parameters():
             param.requires_grad = False
 
+        min_val_loss = math.inf
         for epoch in range(Init_Epoch,Freeze_Epoch):
-            fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Freeze_Epoch,Cuda, writer)
+            fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Freeze_Epoch,Cuda, writer, min_val_loss)
             lr_scheduler.step()
 
     if True:
@@ -225,7 +230,8 @@ if __name__ == "__main__":
         for param in model.backbone.parameters():
             param.requires_grad = True
 
+        min_val_loss = math.inf
         for epoch in range(Freeze_Epoch,Unfreeze_Epoch):
-            fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Unfreeze_Epoch,Cuda, writer)
+            fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Unfreeze_Epoch,Cuda, writer, min_val_loss)
             lr_scheduler.step()
     writer.close()

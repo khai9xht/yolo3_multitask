@@ -34,12 +34,12 @@ def jaccard(_box_a, _box_b):
     inter = torch.clamp((max_xy - min_xy), min=0)
 
     inter = inter[:, :, 0] * inter[:, :, 1]
-    # 计算先验框和真实框各自的面积
+    # calculate area of boxes
     area_a = ((box_a[:, 2]-box_a[:, 0]) *
               (box_a[:, 3]-box_a[:, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
     area_b = ((box_b[:, 2]-box_b[:, 0]) *
               (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
-    # 求IOU
+    # calculate IOU
     union = area_a + area_b - inter
     return inter / union  # [A,B]
 
@@ -78,28 +78,26 @@ class YOLOLoss(nn.Module):
         self.ignore_threshold = 0.5
         self.lambda_xy = 1.0
         self.lambda_wh = 1.0
-        self.lambda_conf = 1e-3
+        self.lambda_conf = 1
         self.lambda_cls = 1.0
+        self.lambda_yaw = 1.0
+        self.lambda_pitch = 1.0
+        self.lambda_roll = 1.0
         self.cuda = cuda
 
     def forward(self, input, targets=None):
-        # input为bs,3*(5+num_classes),13,13
+        # input shape: bs,3*(5+num_classes),13,13
 
-        # 一共多少张图片
+        # batch size
         bs = input.size(0)
-        # 特征层的高
+        # grid size
         in_h = input.size(2)
-        # 特征层的宽
         in_w = input.size(3)
 
-        # 计算步长
-        # 每一个特征点对应原来的图片上多少个像素点
-        # 如果特征层为13x13的话，一个特征点就对应原来的图片上的32个像素点
+        # stride
         stride_h = self.img_size[1] / in_h
         stride_w = self.img_size[0] / in_w
 
-        # 把先验框的尺寸调整成特征层大小的形式
-        # 计算出先验框在特征层上对应的宽高
         scaled_anchors = [(a_w / stride_w, a_h / stride_h)
                           for a_w, a_h in self.anchors]
 
@@ -107,18 +105,17 @@ class YOLOLoss(nn.Module):
         prediction = input.view(bs, int(self.num_anchors/3),
                                 self.bbox_attrs, in_h, in_w).permute(0, 1, 3, 4, 2).contiguous()
 
-        # 对prediction预测进行调整
         x = torch.sigmoid(prediction[..., 0])  # Center x
         y = torch.sigmoid(prediction[..., 1])  # Center y
         w = prediction[..., 2]  # Width
         h = prediction[..., 3]  # Height
         conf = torch.sigmoid(prediction[..., 4])  # Conf
 
-        pred_yaw = torch.sigmoid(prediction[..., 5])
-        pred_pitch = torch.sigmoid(prediction[..., 6])
-        pred_roll = torch.sigmoid(prediction[..., 7])
+        pred_yaw = torch.tanh(prediction[..., 5])
+        pred_pitch = torch.tanh(prediction[..., 6])
+        pred_roll = torch.tanh(prediction[..., 7])
 
-        # 找到哪些先验框内部包含物体
+        # calculate ground truth from targets
         mask, noobj_mask, tx, ty, tw, th, tconf, yaw, pitch, roll, box_loss_scale_x, box_loss_scale_y =\
             self.get_target(targets, scaled_anchors,
                             in_w, in_h,
@@ -148,7 +145,7 @@ class YOLOLoss(nn.Module):
         loss_yaw = torch.sum(MSELoss(pred_yaw, yaw)/bs * mask)
         loss_pitch = torch.sum(MSELoss(pred_pitch, pitch)/bs * mask)
         loss_roll = torch.sum(MSELoss(pred_roll, roll)/bs * mask)
-        
+
         # print(f'[INFO] loss_x: {loss_x}')
         # print(f'[INFO] loss_y: {loss_y}')
         # print(f'[INFO] loss_w: {loss_w}')
@@ -157,7 +154,7 @@ class YOLOLoss(nn.Module):
         # print(f'[INFO] mask: {mask[0]}')
         # print(f'[INFO] loss_conf: {loss_conf}')
         # print(f'[INFO] box_loss_scale_x: {box_loss_scale_x.shape}')
-        
+
         # print(f'[INFO] box_loss_scale_y: {box_loss_scale_y.shape}')
         # print(f'[INFO] box_loss_scale: {box_loss_scale.shape}')
         # print(f'[INFO] loss_yaw: {loss_yaw}')
@@ -167,20 +164,20 @@ class YOLOLoss(nn.Module):
 
         loss = loss_x * self.lambda_xy + loss_y * self.lambda_xy + \
             loss_w * self.lambda_wh + loss_h * self.lambda_wh + \
-            loss_conf * self.lambda_conf + loss_yaw + \
-            loss_pitch + loss_roll
+            loss_conf * self.lambda_conf + \
+            loss_yaw * self.lambda_yaw + loss_pitch * self.lambda_pitch + loss_roll * self.lambda_roll
         return loss, loss_x.item(), loss_y.item(), loss_w.item(), \
             loss_h.item(), loss_conf.item(), loss_yaw.item(), loss_pitch.item(), loss_roll.item()
 
     def get_target(self, target, anchors, in_w, in_h, ignore_threshold):
         # print(f'[INFO] target: {target[0].shape}')
-        # 计算一共有多少张图片
+        # batch size of target
         bs = len(target)
-        # 获得先验框
+
         anchor_index = [[0, 1, 2], [3, 4, 5], [
             6, 7, 8]][self.feature_length.index(in_w)]
         subtract_index = [0, 3, 6][self.feature_length.index(in_w)]
-        # 创建全是0或者全是1的阵列
+
         mask = torch.zeros(bs, int(self.num_anchors/3),
                            in_h, in_w, requires_grad=False)
         noobj_mask = torch.ones(
@@ -210,25 +207,23 @@ class YOLOLoss(nn.Module):
         for b in range(bs):
             if len(target[b]) == 0:
                 continue
-            # 计算出在特征层上的点位
+
+            # rescale
             gxs = target[b][:, 0:1] * in_w
             gys = target[b][:, 1:2] * in_h
 
             gws = target[b][:, 2:3] * in_w
             ghs = target[b][:, 3:4] * in_h
 
-            # 计算出属于哪个网格
             gis = torch.floor(gxs)
             gjs = torch.floor(gys)
 
-            # 计算真实框的位置
             gt_box = torch.FloatTensor(
                 torch.cat([torch.zeros_like(gws), torch.zeros_like(ghs), gws, ghs], 1))
 
-            # 计算出所有先验框的位置
             anchor_shapes = torch.FloatTensor(
                 torch.cat((torch.zeros((self.num_anchors, 2)), torch.FloatTensor(anchors)), 1))
-            # 计算重合程度
+
             anch_ious = jaccard(gt_box, anchor_shapes)
 
             # Find the best matching anchor box
@@ -246,13 +241,14 @@ class YOLOLoss(nn.Module):
                 # Masks
                 if (gj < in_h) and (gi < in_w):
                     best_n = best_n - subtract_index
-                    # 判定哪些先验框内部真实的存在物体
+
+                    # have object (1) or None (0)
                     noobj_mask[b, best_n, gj, gi] = 0
                     mask[b, best_n, gj, gi] = 1
-                    # 计算先验框中心调整参数
+
                     tx[b, best_n, gj, gi] = gx - gi.float()
                     ty[b, best_n, gj, gi] = gy - gj.float()
-                    # 计算先验框宽高调整参数
+
                     tw[b, best_n, gj, gi] = math.log(
                         gw / anchors[best_n+subtract_index][0])
                     th[b, best_n, gj, gi] = math.log(
@@ -260,9 +256,11 @@ class YOLOLoss(nn.Module):
                     # 用于获得xywh的比例
                     box_loss_scale_x[b, best_n, gj, gi] = target[b][i, 2]
                     box_loss_scale_y[b, best_n, gj, gi] = target[b][i, 3]
-                    # 物体置信度
+
+                    # confidence grid
                     tconf[b, best_n, gj, gi] = 1
-                    # 种类
+
+                    # yaw
                     yaw[b, best_n, gj, gi] = target[b][i, 4]
                     # print(f'[INFO] yaw: {yaw.shape}')
                     pitch[b, best_n, gj, gi] = target[b][i, 5]
@@ -281,10 +279,10 @@ class YOLOLoss(nn.Module):
             6, 7, 8]][self.feature_length.index(in_w)]
         scaled_anchors = np.array(scaled_anchors)[anchor_index]
         # print(scaled_anchors)
-        # 先验框的中心位置的调整参数
+
         x = torch.sigmoid(prediction[..., 0])
         y = torch.sigmoid(prediction[..., 1])
-        # 先验框的宽高调整参数
+
         w = prediction[..., 2]  # Width
         h = prediction[..., 3]  # Height
 
@@ -347,7 +345,6 @@ class Generator(object):
         self.image_size = image_size
 
     def get_random_data(self, annotation_line, input_shape, jitter=.1, hue=.1, sat=1.3, val=1.3):
-        '''r实时数据增强的随机预处理'''
         line = annotation_line.split(' ', 1)
         image_path = line[0].replace('hpdb/', 'data/BIWI')
         image = Image.open(image_path)
